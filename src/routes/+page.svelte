@@ -5,6 +5,8 @@
 	let isProcessing = $state(false);
 	let originalImage = $state<string | null>(null);
 	let processedImage = $state<string | null>(null);
+	let addBorder = $state(false);
+	let borderWidth = $state(20);
 
 	async function processImage(file: File) {
 		if (!file.type.startsWith('image/')) {
@@ -27,8 +29,9 @@
 		img.onload = () => {
 			// Create canvas and get image data
 			const canvas = document.createElement('canvas');
-			canvas.width = img.width;
-			canvas.height = img.height;
+			const borderSize = addBorder ? borderWidth : 0;
+			canvas.width = img.width + (borderSize * 2);
+			canvas.height = img.height + (borderSize * 2);
 			const ctx = canvas.getContext('2d');
 
 			if (!ctx) {
@@ -37,14 +40,21 @@
 				return;
 			}
 
-			ctx.drawImage(img, 0, 0);
-			const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+			// If border is enabled, fill with Nord black first
+			if (addBorder) {
+				ctx.fillStyle = 'rgb(46, 52, 64)'; // Nord black (nord0)
+				ctx.fillRect(0, 0, canvas.width, canvas.height);
+			}
+
+			// Draw image at offset if border is enabled
+			ctx.drawImage(img, borderSize, borderSize);
+			const imageData = ctx.getImageData(borderSize, borderSize, img.width, img.height);
 
 			// Apply dithering with noise
 			const dithered = ditherImage(imageData, 0.05);
 
 			// Put the dithered image back on canvas
-			ctx.putImageData(dithered, 0, 0);
+			ctx.putImageData(dithered, borderSize, borderSize);
 
 			// Convert to data URL
 			processedImage = canvas.toDataURL('image/png');
@@ -155,6 +165,28 @@
 			</svg>
 			<p class="dropzone-text">Drag and drop an image here</p>
 			<p class="dropzone-subtext">or paste from clipboard</p>
+
+			<div class="options">
+				<label class="checkbox-label">
+					<input type="checkbox" bind:checked={addBorder} />
+					<span>Add border (Nord black)</span>
+				</label>
+
+				{#if addBorder}
+					<div class="slider-container">
+						<label for="border-width">Border width: {borderWidth}px</label>
+						<input
+							id="border-width"
+							type="range"
+							min="5"
+							max="100"
+							step="5"
+							bind:value={borderWidth}
+						/>
+					</div>
+				{/if}
+			</div>
+
 			<label class="file-button">
 				<input type="file" accept="image/*" onchange={handleFileInput} />
 				Choose File
@@ -326,6 +358,84 @@
 	.dropzone-subtext {
 		font-size: 1rem;
 		color: var(--text-secondary);
+	}
+
+	.options {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		width: 100%;
+		max-width: 400px;
+		padding: 1rem;
+		background-color: var(--bg-primary);
+		border-radius: 0.5rem;
+		margin-top: 1rem;
+	}
+
+	.checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+		font-size: 1rem;
+		color: var(--text-primary);
+	}
+
+	.checkbox-label input[type="checkbox"] {
+		width: 1.25rem;
+		height: 1.25rem;
+		cursor: pointer;
+		accent-color: var(--accent-primary);
+	}
+
+	.slider-container {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.slider-container label {
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+	}
+
+	.slider-container input[type="range"] {
+		width: 100%;
+		height: 0.5rem;
+		background: var(--bg-tertiary);
+		border-radius: 0.25rem;
+		outline: none;
+		cursor: pointer;
+	}
+
+	.slider-container input[type="range"]::-webkit-slider-thumb {
+		appearance: none;
+		width: 1.25rem;
+		height: 1.25rem;
+		background: var(--accent-primary);
+		border-radius: 50%;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.slider-container input[type="range"]::-webkit-slider-thumb:hover {
+		background: var(--accent-secondary);
+		transform: scale(1.1);
+	}
+
+	.slider-container input[type="range"]::-moz-range-thumb {
+		width: 1.25rem;
+		height: 1.25rem;
+		background: var(--accent-primary);
+		border: none;
+		border-radius: 50%;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.slider-container input[type="range"]::-moz-range-thumb:hover {
+		background: var(--accent-secondary);
+		transform: scale(1.1);
 	}
 
 	.file-button {
