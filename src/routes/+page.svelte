@@ -6,7 +6,18 @@
 	let originalImage = $state<string | null>(null);
 	let processedImage = $state<string | null>(null);
 	let addBorder = $state(false);
+	let borderMode = $state<'manual' | 'auto-fit'>('manual');
 	let borderWidth = $state(20);
+	let targetWidth = $state(2256); // Framework 13" default
+
+	const widthPresets = [
+		{ name: 'Framework 13"', width: 2256 },
+		{ name: 'Framework 16"', width: 2560 },
+		{ name: '1080p', width: 1920 },
+		{ name: '1440p', width: 2560 },
+		{ name: '4K', width: 3840 },
+		{ name: 'Custom', width: 0 }
+	];
 
 	async function processImage(file: File) {
 		if (!file.type.startsWith('image/')) {
@@ -27,11 +38,7 @@
 		};
 
 		img.onload = () => {
-			// Create canvas and get image data
 			const canvas = document.createElement('canvas');
-			const borderSize = addBorder ? borderWidth : 0;
-			canvas.width = img.width + (borderSize * 2);
-			canvas.height = img.height + (borderSize * 2);
 			const ctx = canvas.getContext('2d');
 
 			if (!ctx) {
@@ -40,15 +47,44 @@
 				return;
 			}
 
-			// If border is enabled, fill with Nord black first
+			let finalWidth = img.width;
+			let finalHeight = img.height;
+			let borderSize = 0;
+
+			if (addBorder) {
+				if (borderMode === 'auto-fit') {
+					// Calculate border to fit target width
+					if (img.width >= targetWidth) {
+						// Image is too wide, scale it down to fit with minimal border
+						const scale = (targetWidth * 0.9) / img.width; // Use 90% of target for some border
+						finalWidth = Math.floor(img.width * scale);
+						finalHeight = Math.floor(img.height * scale);
+						borderSize = Math.floor((targetWidth - finalWidth) / 2);
+					} else {
+						// Image fits, calculate border to reach target width
+						finalWidth = img.width;
+						finalHeight = img.height;
+						borderSize = Math.floor((targetWidth - img.width) / 2);
+					}
+				} else {
+					// Manual border mode
+					borderSize = borderWidth;
+				}
+			}
+
+			// Set canvas size
+			canvas.width = finalWidth + (borderSize * 2);
+			canvas.height = finalHeight + (borderSize * 2);
+
+			// Fill with Nord black if border is enabled
 			if (addBorder) {
 				ctx.fillStyle = 'rgb(46, 52, 64)'; // Nord black (nord0)
 				ctx.fillRect(0, 0, canvas.width, canvas.height);
 			}
 
-			// Draw image at offset if border is enabled
-			ctx.drawImage(img, borderSize, borderSize);
-			const imageData = ctx.getImageData(borderSize, borderSize, img.width, img.height);
+			// Draw scaled image
+			ctx.drawImage(img, borderSize, borderSize, finalWidth, finalHeight);
+			const imageData = ctx.getImageData(borderSize, borderSize, finalWidth, finalHeight);
 
 			// Apply dithering with noise
 			const dithered = ditherImage(imageData, 0.05);
@@ -173,17 +209,48 @@
 				</label>
 
 				{#if addBorder}
-					<div class="slider-container">
-						<label for="border-width">Border width: {borderWidth}px</label>
-						<input
-							id="border-width"
-							type="range"
-							min="5"
-							max="100"
-							step="5"
-							bind:value={borderWidth}
-						/>
+					<div class="border-mode">
+						<label class="radio-label">
+							<input type="radio" bind:group={borderMode} value="manual" />
+							<span>Manual width</span>
+						</label>
+						<label class="radio-label">
+							<input type="radio" bind:group={borderMode} value="auto-fit" />
+							<span>Auto-fit to screen</span>
+						</label>
 					</div>
+
+					{#if borderMode === 'manual'}
+						<div class="slider-container">
+							<label for="border-width">Border width: {borderWidth}px</label>
+							<input
+								id="border-width"
+								type="range"
+								min="5"
+								max="100"
+								step="5"
+								bind:value={borderWidth}
+							/>
+						</div>
+					{:else}
+						<div class="select-container">
+							<label for="target-width">Target width:</label>
+							<select id="target-width" bind:value={targetWidth}>
+								{#each widthPresets as preset}
+									<option value={preset.width}>{preset.name}</option>
+								{/each}
+							</select>
+							{#if targetWidth === 0}
+								<input
+									type="number"
+									placeholder="Enter width in px"
+									bind:value={targetWidth}
+									min="100"
+									max="7680"
+								/>
+							{/if}
+						</div>
+					{/if}
 				{/if}
 			</div>
 
@@ -298,12 +365,13 @@
 	main {
 		max-width: 1200px;
 		margin: 0 auto;
-		padding: 2rem;
-		min-height: 100vh;
+		padding: 2rem 2rem 6rem 2rem;
+		min-height: calc(100vh - 4rem);
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		justify-content: center;
+		justify-content: flex-start;
+		padding-top: 4rem;
 	}
 
 	h1 {
@@ -386,6 +454,76 @@
 		height: 1.25rem;
 		cursor: pointer;
 		accent-color: var(--accent-primary);
+	}
+
+	.border-mode {
+		display: flex;
+		gap: 1rem;
+		padding: 0.5rem 0;
+	}
+
+	.radio-label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+		font-size: 0.9rem;
+		color: var(--text-primary);
+	}
+
+	.radio-label input[type="radio"] {
+		width: 1rem;
+		height: 1rem;
+		cursor: pointer;
+		accent-color: var(--accent-primary);
+	}
+
+	.select-container {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.select-container label {
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+	}
+
+	.select-container select {
+		padding: 0.5rem;
+		background-color: var(--bg-tertiary);
+		color: var(--text-primary);
+		border: 1px solid var(--border-color);
+		border-radius: 0.375rem;
+		font-size: 0.9rem;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.select-container select:hover {
+		border-color: var(--accent-primary);
+	}
+
+	.select-container select:focus {
+		outline: none;
+		border-color: var(--accent-primary);
+		box-shadow: 0 0 0 2px rgba(136, 192, 208, 0.2);
+	}
+
+	.select-container input[type="number"] {
+		padding: 0.5rem;
+		background-color: var(--bg-tertiary);
+		color: var(--text-primary);
+		border: 1px solid var(--border-color);
+		border-radius: 0.375rem;
+		font-size: 0.9rem;
+		transition: all 0.2s ease;
+	}
+
+	.select-container input[type="number"]:focus {
+		outline: none;
+		border-color: var(--accent-primary);
+		box-shadow: 0 0 0 2px rgba(136, 192, 208, 0.2);
 	}
 
 	.slider-container {
@@ -507,6 +645,8 @@
 		gap: 1rem;
 		flex-wrap: wrap;
 		justify-content: center;
+		position: relative;
+		z-index: 10;
 	}
 
 	.action-button {
@@ -519,6 +659,7 @@
 		border-radius: 0.5rem;
 		font-weight: 500;
 		transition: all 0.2s ease;
+		cursor: pointer;
 	}
 
 	.action-button:hover {
@@ -547,6 +688,8 @@
 		justify-content: center;
 		gap: 1.5rem;
 		background: linear-gradient(to top, var(--bg-primary) 0%, var(--bg-primary) 70%, transparent 100%);
+		z-index: 5;
+		pointer-events: none;
 	}
 
 	footer a {
@@ -557,6 +700,7 @@
 		justify-content: center;
 		padding: 0.5rem;
 		border-radius: 0.5rem;
+		pointer-events: auto;
 	}
 
 	footer a:hover {
