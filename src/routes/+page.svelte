@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { ditherImage } from '$lib/dither';
+	import { browser } from '$app/environment';
 
 	let isDragging = $state(false);
 	let isProcessing = $state(false);
@@ -9,18 +10,26 @@
 	let borderMode = $state<'manual' | 'auto-fit'>('manual');
 	let borderWidth = $state(20);
 	let targetWidth = $state(2256); // Framework 13" default
+	let targetHeight = $state(1504); // Framework 13" default
+	let scaleFactor = $state(90); // Percentage of target dimensions to use (default 90%)
 
 	const widthPresets = [
-		{ name: 'Framework 13"', width: 2256 },
-		{ name: 'Framework 16"', width: 2560 },
-		{ name: '1080p', width: 1920 },
-		{ name: '1440p', width: 2560 },
-		{ name: '4K', width: 3840 },
-		{ name: 'Custom', width: 0 }
+		{ name: 'Framework 13"', width: 2256, height: 1504 },
+		{ name: 'Framework 16"', width: 2560, height: 1600 },
+		{ name: '1080p', width: 1920, height: 1080 },
+		{ name: '1440p', width: 2560, height: 1440 },
+		{ name: '4K', width: 3840, height: 2160 },
+		{ name: 'Custom', width: 0, height: 0 }
 	];
 
 	async function processImage(file: File) {
-		if (!file.type.startsWith('image/')) {
+		// Check for HEIC files by extension or MIME type
+		const isHEIC = file.name.toLowerCase().endsWith('.heic') ||
+		               file.name.toLowerCase().endsWith('.heif') ||
+		               file.type === 'image/heic' ||
+		               file.type === 'image/heif';
+
+		if (!file.type.startsWith('image/') && !isHEIC) {
 			alert('Please upload an image file');
 			return;
 		}
@@ -29,13 +38,30 @@
 		originalImage = null;
 		processedImage = null;
 
-		// Load the image
-		const img = new Image();
-		const reader = new FileReader();
+		try {
+			let processFile = file;
 
-		reader.onload = (e) => {
-			img.src = e.target?.result as string;
-		};
+			// Convert HEIC to JPEG (only in browser)
+			if (isHEIC && browser) {
+				const heic2any = (await import('heic2any')).default;
+				const convertedBlob = await heic2any({
+					blob: file,
+					toType: 'image/jpeg',
+					quality: 0.95
+				});
+
+				// heic2any can return Blob or Blob[], handle both
+				const blob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob;
+				processFile = new File([blob], file.name.replace(/\.heic$/i, '.jpg'), { type: 'image/jpeg' });
+			}
+
+			// Load the image
+			const img = new Image();
+			const reader = new FileReader();
+
+			reader.onload = (e) => {
+				img.src = e.target?.result as string;
+			};
 
 		img.onload = () => {
 			const canvas = document.createElement('canvas');
@@ -49,32 +75,40 @@
 
 			let finalWidth = img.width;
 			let finalHeight = img.height;
-			let borderSize = 0;
+			let borderSizeX = 0; // Horizontal border (left/right)
+			let borderSizeY = 0; // Vertical border (top/bottom)
 
 			if (addBorder) {
 				if (borderMode === 'auto-fit') {
-					// Calculate border to fit target width
-					if (img.width >= targetWidth) {
-						// Image is too wide, scale it down to fit with minimal border
-						const scale = (targetWidth * 0.9) / img.width; // Use 90% of target for some border
-						finalWidth = Math.floor(img.width * scale);
-						finalHeight = Math.floor(img.height * scale);
-						borderSize = Math.floor((targetWidth - finalWidth) / 2);
-					} else {
-						// Image fits, calculate border to reach target width
-						finalWidth = img.width;
-						finalHeight = img.height;
-						borderSize = Math.floor((targetWidth - img.width) / 2);
-					}
+					// Calculate image size and borders to fit target dimensions exactly
+					const scalePercent = scaleFactor / 100;
+
+					// Target dimensions for the image area (excluding border space)
+					const targetImageWidth = targetWidth * scalePercent;
+					const targetImageHeight = targetHeight * scalePercent;
+
+					// Calculate scale to fit image within target dimensions (maintaining aspect ratio)
+					const scaleX = targetImageWidth / img.width;
+					const scaleY = targetImageHeight / img.height;
+					const scale = Math.min(scaleX, scaleY); // Use smaller scale to fit within both dimensions
+
+					// Calculate final image dimensions after scaling
+					finalWidth = Math.floor(img.width * scale);
+					finalHeight = Math.floor(img.height * scale);
+
+					// Calculate borders to reach exact target dimensions
+					borderSizeX = Math.floor((targetWidth - finalWidth) / 2);
+					borderSizeY = Math.floor((targetHeight - finalHeight) / 2);
 				} else {
-					// Manual border mode
-					borderSize = borderWidth;
+					// Manual border mode - uniform border
+					borderSizeX = borderWidth;
+					borderSizeY = borderWidth;
 				}
 			}
 
-			// Set canvas size
-			canvas.width = finalWidth + (borderSize * 2);
-			canvas.height = finalHeight + (borderSize * 2);
+			// Set canvas size with separate horizontal and vertical borders
+			canvas.width = finalWidth + (borderSizeX * 2);
+			canvas.height = finalHeight + (borderSizeY * 2);
 
 			// Fill with Nord black if border is enabled
 			if (addBorder) {
@@ -82,22 +116,27 @@
 				ctx.fillRect(0, 0, canvas.width, canvas.height);
 			}
 
-			// Draw scaled image
-			ctx.drawImage(img, borderSize, borderSize, finalWidth, finalHeight);
-			const imageData = ctx.getImageData(borderSize, borderSize, finalWidth, finalHeight);
+			// Draw scaled image with appropriate border offsets
+			ctx.drawImage(img, borderSizeX, borderSizeY, finalWidth, finalHeight);
+			const imageData = ctx.getImageData(borderSizeX, borderSizeY, finalWidth, finalHeight);
 
 			// Apply dithering with noise
 			const dithered = ditherImage(imageData, 0.05);
 
-			// Put the dithered image back on canvas
-			ctx.putImageData(dithered, borderSize, borderSize);
+			// Put the dithered image back on canvas with appropriate border offsets
+			ctx.putImageData(dithered, borderSizeX, borderSizeY);
 
 			// Convert to data URL
 			processedImage = canvas.toDataURL('image/png');
 			isProcessing = false;
 		};
 
-		reader.readAsDataURL(file);
+			reader.readAsDataURL(processFile);
+		} catch (err) {
+			console.error('Failed to process image:', err);
+			alert('Failed to process image. HEIC files require a modern browser with WASM support.');
+			isProcessing = false;
+		}
 	}
 
 	function handleDrop(e: DragEvent) {
@@ -184,6 +223,8 @@
 			ondrop={handleDrop}
 			ondragover={handleDragOver}
 			ondragleave={handleDragLeave}
+			role="region"
+			aria-label="Drop zone for image upload"
 		>
 			<svg
 				width="64"
@@ -200,7 +241,7 @@
 				<line x1="12" y1="3" x2="12" y2="15"></line>
 			</svg>
 			<p class="dropzone-text">Drag and drop an image here</p>
-			<p class="dropzone-subtext">or paste from clipboard</p>
+			<p class="dropzone-subtext">or paste from clipboard (supports HEIC/HEIF)</p>
 
 			<div class="options">
 				<label class="checkbox-label">
@@ -234,28 +275,53 @@
 						</div>
 					{:else}
 						<div class="select-container">
-							<label for="target-width">Target width:</label>
-							<select id="target-width" bind:value={targetWidth}>
+							<label for="target-width">Target screen:</label>
+							<select id="target-width" onchange={(e) => {
+								const selected = widthPresets.find(p => p.width === Number((e.target as HTMLSelectElement).value));
+								if (selected) {
+									targetWidth = selected.width;
+									targetHeight = selected.height;
+								}
+							}}>
 								{#each widthPresets as preset}
-									<option value={preset.width}>{preset.name}</option>
+									<option value={preset.width} selected={preset.width === targetWidth}>{preset.name}</option>
 								{/each}
 							</select>
 							{#if targetWidth === 0}
 								<input
 									type="number"
-									placeholder="Enter width in px"
+									placeholder="Width (px)"
 									bind:value={targetWidth}
 									min="100"
 									max="7680"
 								/>
+								<input
+									type="number"
+									placeholder="Height (px)"
+									bind:value={targetHeight}
+									min="100"
+									max="4320"
+								/>
 							{/if}
+						</div>
+
+						<div class="slider-container">
+							<label for="scale-factor">Image fills {scaleFactor}% of screen</label>
+							<input
+								id="scale-factor"
+								type="range"
+								min="50"
+								max="95"
+								step="5"
+								bind:value={scaleFactor}
+							/>
 						</div>
 					{/if}
 				{/if}
 			</div>
 
 			<label class="file-button">
-				<input type="file" accept="image/*" onchange={handleFileInput} />
+				<input type="file" accept="image/*,.heic,.heif" onchange={handleFileInput} />
 				Choose File
 			</label>
 		</div>
