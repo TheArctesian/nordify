@@ -7,8 +7,9 @@
 	let originalImage = $state<string | null>(null);
 	let processedImage = $state<string | null>(null);
 	let addBorder = $state(false);
-	let borderMode = $state<'manual' | 'auto-fit'>('manual');
+	let borderMode = $state<'manual' | 'auto-fit' | 'auto-fit-phone'>('manual');
 	let borderWidth = $state(20);
+	let borderHeight = $state(20);
 	let targetWidth = $state(2256); // Framework 13" default
 	let targetHeight = $state(1504); // Framework 13" default
 	let scaleFactor = $state(90); // Percentage of target dimensions to use (default 90%)
@@ -19,6 +20,16 @@
 		{ name: '1080p', width: 1920, height: 1080 },
 		{ name: '1440p', width: 2560, height: 1440 },
 		{ name: '4K', width: 3840, height: 2160 },
+		{ name: 'Custom', width: 0, height: 0 }
+	];
+
+	const phonePresets = [
+		{ name: 'iPhone 14 Pro', width: 1179, height: 2556 },
+		{ name: 'iPhone 15 Pro Max', width: 1290, height: 2796 },
+		{ name: 'Pixel 7', width: 1080, height: 2400 },
+		{ name: 'Pixel 8 Pro', width: 1344, height: 2992 },
+		{ name: 'Samsung Galaxy S24', width: 1080, height: 2340 },
+		{ name: 'Samsung Galaxy S24 Ultra', width: 1440, height: 3120 },
 		{ name: 'Custom', width: 0, height: 0 }
 	];
 
@@ -79,7 +90,7 @@
 			let borderSizeY = 0; // Vertical border (top/bottom)
 
 			if (addBorder) {
-				if (borderMode === 'auto-fit') {
+				if (borderMode === 'auto-fit' || borderMode === 'auto-fit-phone') {
 					// Calculate image size and borders to fit target dimensions exactly
 					const scalePercent = scaleFactor / 100;
 
@@ -100,9 +111,9 @@
 					borderSizeX = Math.floor((targetWidth - finalWidth) / 2);
 					borderSizeY = Math.floor((targetHeight - finalHeight) / 2);
 				} else {
-					// Manual border mode - uniform border
+					// Manual border mode - independent horizontal and vertical borders
 					borderSizeX = borderWidth;
-					borderSizeY = borderWidth;
+					borderSizeY = borderHeight;
 				}
 			}
 
@@ -253,17 +264,21 @@
 					<div class="border-mode">
 						<label class="radio-label">
 							<input type="radio" bind:group={borderMode} value="manual" />
-							<span>Manual width</span>
+							<span>Manual width & height</span>
 						</label>
 						<label class="radio-label">
 							<input type="radio" bind:group={borderMode} value="auto-fit" />
 							<span>Auto-fit to screen</span>
 						</label>
+						<label class="radio-label">
+							<input type="radio" bind:group={borderMode} value="auto-fit-phone" />
+							<span>Auto-fit to phone</span>
+						</label>
 					</div>
 
 					{#if borderMode === 'manual'}
 						<div class="slider-container">
-							<label for="border-width">Border width: {borderWidth}px</label>
+							<label for="border-width">Border width (horizontal): {borderWidth}px</label>
 							<input
 								id="border-width"
 								type="range"
@@ -273,7 +288,18 @@
 								bind:value={borderWidth}
 							/>
 						</div>
-					{:else}
+						<div class="slider-container">
+							<label for="border-height">Border height (vertical): {borderHeight}px</label>
+							<input
+								id="border-height"
+								type="range"
+								min="5"
+								max="100"
+								step="5"
+								bind:value={borderHeight}
+							/>
+						</div>
+					{:else if borderMode === 'auto-fit'}
 						<div class="select-container">
 							<label for="target-width">Target screen:</label>
 							<select id="target-width" onchange={(e) => {
@@ -309,6 +335,49 @@
 							<label for="scale-factor">Image fills {scaleFactor}% of screen</label>
 							<input
 								id="scale-factor"
+								type="range"
+								min="50"
+								max="95"
+								step="5"
+								bind:value={scaleFactor}
+							/>
+						</div>
+					{:else if borderMode === 'auto-fit-phone'}
+						<div class="select-container">
+							<label for="phone-target">Target phone:</label>
+							<select id="phone-target" onchange={(e) => {
+								const selected = phonePresets.find(p => p.width === Number((e.target as HTMLSelectElement).value));
+								if (selected) {
+									targetWidth = selected.width;
+									targetHeight = selected.height;
+								}
+							}}>
+								{#each phonePresets as preset}
+									<option value={preset.width} selected={preset.width === 1179}>{preset.name}</option>
+								{/each}
+							</select>
+							{#if targetWidth === 0}
+								<input
+									type="number"
+									placeholder="Width (px)"
+									bind:value={targetWidth}
+									min="100"
+									max="2000"
+								/>
+								<input
+									type="number"
+									placeholder="Height (px)"
+									bind:value={targetHeight}
+									min="100"
+									max="4000"
+								/>
+							{/if}
+						</div>
+
+						<div class="slider-container">
+							<label for="scale-factor-phone">Image fills {scaleFactor}% of screen</label>
+							<input
+								id="scale-factor-phone"
 								type="range"
 								min="50"
 								max="95"
