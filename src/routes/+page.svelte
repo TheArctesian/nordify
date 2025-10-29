@@ -223,6 +223,8 @@
 
 <svelte:window onpaste={handlePaste} />
 
+<a href="https://pixelfed.social/thearctesian" target="_blank" rel="noopener noreferrer" class="examples-link">examples</a>
+
 <main>
 	<h1>Nordify</h1>
 	<p class="subtitle">Transform your images with Nord color palette dithering</p>
@@ -841,6 +843,25 @@
 	footer a:hover {
 		color: var(--accent-primary);
 		transform: translateY(-2px);
+	}
+
+	.examples-link {
+		position: fixed;
+		top: 1.5rem;
+		right: 2rem;
+		color: var(--text-secondary);
+		font-size: 1rem;
+		font-weight: 500;
+		text-decoration: none;
+		transition: all 0.2s ease;
+		z-index: 100;
+		padding: 0.5rem 1rem;
+		border-radius: 0.375rem;
+	}
+
+	.examples-link:hover {
+		color: var(--accent-primary);
+		background-color: var(--bg-secondary);
 	}
 
 	@media (max-width: 640px) {
